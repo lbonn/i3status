@@ -9,6 +9,8 @@ such a status line every second. This ensures that even under high load, your
 status bar is updated correctly. Also, it saves a bit of energy by not hogging
 your CPU as much as spawning the corresponding amount of shell commands would.
 
+This is an unofficial fork which adds MPD (Music Player Daemon) support.
+
  ┌────────────────────────────┐
  │ Development                │
  └────────────────────────────┘
@@ -19,6 +21,7 @@ i3status has the following dependencies:
  • libasound2-dev
  • libiw-dev
  • libcap2-bin (for getting network status without root permissions)
+ • libmpdclient (this fork only)
  • asciidoc (only for the documentation)
 
 On debian-based systems, the following line will install all requirements:
