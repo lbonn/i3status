@@ -9,31 +9,27 @@
 
 #include "i3status.h"
 
-#define COPY_CROP(dest, src) \
+#define COPY_CROP(dst, src) \
         do { \
-                const char *tmp = src;\
+                const char *tsrc = src; \
+                const unsigned int maxcplen = sizeof(dst)-4; \
                 if (src) { \
-                        strncpy(dest, tmp, sizeof(dest)-4); \
-                        if (strlen(tmp) > sizeof(dest)-4) { \
-                                strcpy(dest + sizeof(dest)-4, "..."); \
+                        strncpy(dst, tsrc, maxcplen+1); \
+                        if (strlen(tsrc) > maxcplen) { \
+                                strcpy(dst + maxcplen, "..."); \
                         } \
                 } \
         } while(0)
 
+
 void print_mpd(yajl_gen json_gen, char *buffer, const char *host, int port, const char *password, const char *format) {
         const char *walk;
         char *outwalk = buffer;
-        char titlebuf[40];
-        char artistbuf[40];
-        char albumbuf[40];
-        char trackbuf[10];
-        char datebuf[10];
-
-        memset(titlebuf, '\0', sizeof(titlebuf));
-        memset(artistbuf, '\0', sizeof(artistbuf));
-        memset(albumbuf, '\0', sizeof(albumbuf));
-        memset(trackbuf, '\0', sizeof(trackbuf));
-        memset(datebuf, '\0', sizeof(datebuf));
+        static char titlebuf[40];
+        static char artistbuf[40];
+        static char albumbuf[40];
+        static char trackbuf[10];
+        static char datebuf[10];
 
         static struct mpd_connection *conn;
         struct mpd_status *status = NULL;
@@ -86,6 +82,8 @@ void print_mpd(yajl_gen json_gen, char *buffer, const char *host, int port, cons
                 COPY_CROP(trackbuf, mpd_song_get_tag(song, MPD_TAG_TRACK, 0));
                 COPY_CROP(datebuf, mpd_song_get_tag(song, MPD_TAG_DATE, 0));
 
+                mpd_song_free(song);
+
                 for (walk = format; *walk != '\0'; walk++) {
                         if (*walk != '%') {
                                 *(outwalk++) = *walk;
@@ -118,8 +116,6 @@ void print_mpd(yajl_gen json_gen, char *buffer, const char *host, int port, cons
                                 walk += strlen("date");
                         }
                 }
-
-                mpd_song_free(song);
         } else {
                 START_COLOR("color_bad");
                 outwalk += sprintf(outwalk, "%s", "Stopped");
