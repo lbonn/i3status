@@ -33,6 +33,9 @@ enum { O_DZEN2, O_XMOBAR, O_I3BAR, O_TERM, O_NONE } output_format;
 #elif defined(__OpenBSD__)
 /* Default to acpitz(4) if no path is set. */
 #define THERMAL_ZONE "acpitz%d"
+#elif defined(__NetBSD__)
+/* Rely on envsys(4). The key of the sensor is generally cpu%d temperature */
+#define THERMAL_ZONE "cpu%d temperature"
 #endif
 
 #if defined(__FreeBSD_kernel__) && defined(__GLIBC__)
@@ -149,11 +152,12 @@ void print_ddate(yajl_gen json_gen, char *buffer, const char *format, time_t t);
 const char *get_ip_addr();
 void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface, const char *format_up, const char *format_down);
 void print_run_watch(yajl_gen json_gen, char *buffer, const char *title, const char *pidfile, const char *format);
+void print_path_exists(yajl_gen json_gen, char *buffer, const char *title, const char *path, const char *format);
 void print_cpu_temperature_info(yajl_gen json_gen, char *buffer, int zone, const char *path, const char *format, int);
 void print_cpu_usage(yajl_gen json_gen, char *buffer, const char *format);
 void print_eth_info(yajl_gen json_gen, char *buffer, const char *interface, const char *format_up, const char *format_down);
 void print_load(yajl_gen json_gen, char *buffer, const char *format, const float max_threshold);
-void print_volume(yajl_gen json_gen, char *buffer, const char *fmt, const char *device, const char *mixer, int mixer_idx);
+void print_volume(yajl_gen json_gen, char *buffer, const char *fmt, const char *fmt_muted, const char *device, const char *mixer, int mixer_idx);
 void print_mpd(yajl_gen json_gen, char *buffer, const char *host, int port, const char *password, const char *format);
 bool process_runs(const char *path);
 

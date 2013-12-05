@@ -210,6 +210,13 @@ int main(int argc, char *argv[]) {
                 CFG_END()
         };
 
+        cfg_opt_t path_exists_opts[] = {
+                CFG_STR("path", NULL, CFGF_NONE),
+                CFG_STR("format", "%title: %status", CFGF_NONE),
+                CFG_CUSTOM_COLOR_OPTS,
+                CFG_END()
+        };
+
         cfg_opt_t wireless_opts[] = {
                 CFG_STR("format_up", "W: (%quality at %essid, %bitrate) %ip", CFGF_NONE),
                 CFG_STR("format_down", "W: down", CFGF_NONE),
@@ -286,6 +293,7 @@ int main(int argc, char *argv[]) {
 
         cfg_opt_t volume_opts[] = {
                 CFG_STR("format", "♪: %volume", CFGF_NONE),
+                CFG_STR("format_muted", "♪: 0%%", CFGF_NONE),
                 CFG_STR("device", "default", CFGF_NONE),
                 CFG_STR("mixer", "Master", CFGF_NONE),
                 CFG_INT("mixer_idx", 0, CFGF_NONE),
@@ -306,6 +314,7 @@ int main(int argc, char *argv[]) {
                 CFG_STR_LIST("order", "{}", CFGF_NONE),
                 CFG_SEC("general", general_opts, CFGF_NONE),
                 CFG_SEC("run_watch", run_watch_opts, CFGF_TITLE | CFGF_MULTI),
+                CFG_SEC("path_exists", path_exists_opts, CFGF_TITLE | CFGF_MULTI),
                 CFG_SEC("wireless", wireless_opts, CFGF_TITLE | CFGF_MULTI),
                 CFG_SEC("ethernet", ethernet_opts, CFGF_TITLE | CFGF_MULTI),
                 CFG_SEC("battery", battery_opts, CFGF_TITLE | CFGF_MULTI),
@@ -490,6 +499,12 @@ int main(int argc, char *argv[]) {
                                 SEC_CLOSE_MAP;
                         }
 
+                        CASE_SEC_TITLE("path_exists") {
+                                SEC_OPEN_MAP("path_exists");
+                                print_path_exists(json_gen, buffer, title, cfg_getstr(sec, "path"), cfg_getstr(sec, "format"));
+                                SEC_CLOSE_MAP;
+                        }
+
                         CASE_SEC_TITLE("disk") {
                                 SEC_OPEN_MAP("disk_info");
                                 print_disk_info(json_gen, buffer, title, cfg_getstr(sec, "format"));
@@ -523,6 +538,7 @@ int main(int argc, char *argv[]) {
                         CASE_SEC_TITLE("volume") {
                                 SEC_OPEN_MAP("volume");
                                 print_volume(json_gen, buffer, cfg_getstr(sec, "format"),
+                                             cfg_getstr(sec, "format_muted"),
                                              cfg_getstr(sec, "device"),
                                              cfg_getstr(sec, "mixer"),
                                              cfg_getint(sec, "mixer_idx"));
