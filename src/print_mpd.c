@@ -67,13 +67,14 @@ void print_mpd(yajl_gen json_gen, char *buffer, const char *host, int port, cons
                 state = mpd_status_get_state(status);
         }
 
-        if (!status || state != MPD_STATE_PLAY || state != MPD_STATE_PAUSE) {
+        if (!status || (state != MPD_STATE_PLAY && state != MPD_STATE_PAUSE)) {
                 START_COLOR("color_bad");
                 outwalk += sprintf(outwalk, "%s", "Stopped");
                 mpd_connection_free(conn);
                 conn = NULL;
                 goto print_end;
         }
+
         mpd_status_free(status);
 
         if (state == MPD_STATE_PLAY)
