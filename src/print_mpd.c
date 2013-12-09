@@ -74,13 +74,13 @@ void print_mpd(yajl_gen json_gen, char *buffer, const char *host, int port, cons
                 conn = NULL;
                 goto print_end;
         }
+        mpd_status_free(status);
 
         if (state == MPD_STATE_PLAY)
                 START_COLOR("color_good");
         else if (state == MPD_STATE_PAUSE)
                 START_COLOR("color_degraded");
 
-        mpd_status_free(status);
         song = mpd_run_current_song(conn);
 
         COPY_CROP(titlebuf, mpd_song_get_tag(song, MPD_TAG_TITLE, 0));
