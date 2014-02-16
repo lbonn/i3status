@@ -246,6 +246,7 @@ int main(int argc, char *argv[]) {
                 CFG_STR("threshold_type", "time", CFGF_NONE),
                 CFG_BOOL("last_full_capacity", false, CFGF_NONE),
                 CFG_BOOL("integer_battery_capacity", false, CFGF_NONE),
+                CFG_BOOL("hide_seconds", false, CFGF_NONE),
                 CFG_CUSTOM_COLOR_OPTS,
                 CFG_END()
         };
@@ -288,6 +289,7 @@ int main(int argc, char *argv[]) {
 
         cfg_opt_t disk_opts[] = {
                 CFG_STR("format", "%free", CFGF_NONE),
+                CFG_STR("prefix_type", "binary", CFGF_NONE),
                 CFG_END()
         };
 
@@ -489,7 +491,7 @@ int main(int argc, char *argv[]) {
 
                         CASE_SEC_TITLE("battery") {
                                 SEC_OPEN_MAP("battery");
-                                print_battery_info(json_gen, buffer, atoi(title), cfg_getstr(sec, "path"), cfg_getstr(sec, "format"), cfg_getstr(sec, "format_down"), cfg_getint(sec, "low_threshold"), cfg_getstr(sec, "threshold_type"), cfg_getbool(sec, "last_full_capacity"), cfg_getbool(sec, "integer_battery_capacity"));
+                                print_battery_info(json_gen, buffer, atoi(title), cfg_getstr(sec, "path"), cfg_getstr(sec, "format"), cfg_getstr(sec, "format_down"), cfg_getint(sec, "low_threshold"), cfg_getstr(sec, "threshold_type"), cfg_getbool(sec, "last_full_capacity"), cfg_getbool(sec, "integer_battery_capacity"), cfg_getbool(sec, "hide_seconds"));
                                 SEC_CLOSE_MAP;
                         }
 
@@ -507,7 +509,7 @@ int main(int argc, char *argv[]) {
 
                         CASE_SEC_TITLE("disk") {
                                 SEC_OPEN_MAP("disk_info");
-                                print_disk_info(json_gen, buffer, title, cfg_getstr(sec, "format"));
+                                print_disk_info(json_gen, buffer, title, cfg_getstr(sec, "format"), cfg_getstr(sec, "prefix_type"));
                                 SEC_CLOSE_MAP;
                         }
 

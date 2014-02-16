@@ -1,7 +1,7 @@
 i3status(1)
 ===========
 Michael Stapelberg <michael@i3wm.org>
-v2.7, March 2013
+v2.8, January 2014
 
 == NAME
 
@@ -175,7 +175,7 @@ best available public IPv6 address on your computer).
 
 *Example format_up*: +%ip+
 
-*Example format_down* +no IPv6+
+*Example format_down*: +no IPv6+
 
 === Disk
 
@@ -184,11 +184,25 @@ Gets used, free, available and total amount of bytes on the given mounted filesy
 These values can also be expressed in percentages with the percentage_used,
 percentage_free, percentage_avail and percentage_used_of_avail formats.
 
+Byte sizes are presented in a human readable format using a set of prefixes
+whose type can be specified via the "prefix_type" option. Three sets of
+prefixes are available:
+
+binary::
+IEC prefixes (Ki, Mi, Gi, Ti) represent multiples of powers of 1024.
+This is the default.
+decimal::
+SI prefixes (k, M, G, T) represent multiples of powers of 1000.
+custom::
+The custom prefixes (K, M, G, T) represent multiples of powers of 1024.
+
 *Example order*: +disk /mnt/usbstick+
 
 *Example format*: +%free (%avail)/ %total+
 
 *Example format*: +%percentage_used used, %percentage_free free, %percentage_avail avail+
+
+*Example prefix_type*: +custom+
 
 === Run-watch
 
@@ -237,7 +251,8 @@ estimated to be empty. If you want to use the last full capacity instead of the
 design capacity (when using the design capacity, it may happen that your
 battery is at 23% when fully charged because it’s old. In general, I want to
 see it this way, because it tells me how worn off my battery is.), just specify
-+last_full_capacity = true+.
++last_full_capacity = true+. You can hide seconds in the remaining time and
+empty time estimations by setting +hide_seconds = true+.
 
 If you want the battery percentage to be shown without decimals, add
 +integer_battery_capacity = true+.
@@ -255,6 +270,8 @@ colored red. The low_threshold type can be of threshold_type "time" or
 *Example order*: +battery 0+
 
 *Example format*: +%status %remaining (%emptytime %consumption)+
+
+*Example format_down*: +No battery+
 
 *Example low_threshold*: +30+
 
