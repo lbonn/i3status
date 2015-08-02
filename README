@@ -21,7 +21,7 @@ i3status has the following dependencies:
  • libasound2-dev
  • libiw-dev
  • libcap2-bin (for getting network status without root permissions)
- • libmpdclient (this fork only)
+ • libmpdclient-dev (this fork only)
  • asciidoc (only for the documentation)
 
 On debian-based systems, the following line will install all requirements:
