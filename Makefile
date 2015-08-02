@@ -35,23 +35,24 @@ ifeq ($(OS),GNU/kFreeBSD)
 LIBS+=-lbsd
 endif
 
-ifeq ($(OS),OpenBSD)
+ifneq (, $(filter $(OS), DragonFly FreeBSD OpenBSD))
 CFLAGS+=-I/usr/local/include/
 LDFLAGS+=-L/usr/local/lib/
-LIBS+=-lossaudio
 endif
 
-
-# This probably applies for any pkgsrc based system
-ifneq (, $(filter $(OS), NetBSD DragonFly))
-CFLAGS+=-I/usr/pkg/include/
-LDFLAGS+=-L/usr/pkg/lib/
+ifeq ($(OS),OpenBSD)
+LIBS+=-lossaudio
 endif
 
 ifeq ($(OS), NetBSD)
 LIBS+= -lprop
 endif
 
+# This probably applies for any pkgsrc based system
+ifneq (, $(filter $(OS), NetBSD DragonFly))
+CFLAGS+=-I/usr/pkg/include/
+LDFLAGS+=-L/usr/pkg/lib/
+endif
 
 V ?= 0
 ifeq ($(V),0)
@@ -104,7 +105,7 @@ install:
 release:
 	[ -f i3status-${VERSION} ] || rm -rf i3status-${VERSION}
 	mkdir i3status-${VERSION}
-	find . -maxdepth 1 -type f \( -regex ".*\.\(c\|conf\|h\)" -or -name "Makefile" -or -name "LICENSE" -or -name "CHANGELOG" \) -exec cp '{}' i3status-${VERSION} \;
+	find . -maxdepth 1 -type f \( -regex ".*\.\(c\|conf\|h\)" -or -name "README" -or -name "Makefile" -or -name "LICENSE" -or -name "CHANGELOG" \) -exec cp '{}' i3status-${VERSION} \;
 	mkdir i3status-${VERSION}/src
 	mkdir i3status-${VERSION}/man
 	find src -maxdepth 1 -type f \( -regex ".*\.\(c\|h\)" \) -exec cp '{}' i3status-${VERSION}/src \;

@@ -1,7 +1,7 @@
 i3status(1)
 ===========
 Michael Stapelberg <michael@i3wm.org>
-v2.8, January 2014
+v2.9, March 2015
 
 == NAME
 
@@ -74,6 +74,9 @@ ethernet eth0 {
 battery 0 {
         format = "%status %percentage %remaining %emptytime"
         format_down = "No battery"
+        status_chr = "⚇ CHR""
+        status_bat = "⚡ BAT"
+        status_full = "☻ FULL"
         path = "/sys/class/power_supply/BAT%d/uevent"
         low_threshold = 10
 }
@@ -132,7 +135,8 @@ color_good = "#00FF00"
 
 Likewise, you can use the +color_separator+ directive to specify the color that
 will be used to paint the separator bar. The separator is always output in
-color, even when colors are disabled by the +colors+ directive.
+color, even when colors are disabled by the +colors+ directive. This option has
+no effect when +output_format+ is set to +i3bar+ or +none+.
 
 The +interval+ directive specifies the time in seconds for which i3status will
 sleep before printing the next status line.
@@ -160,13 +164,40 @@ easier because the terminal-output of i3status becomes much more readable, but
 should only used for such quick glances, because it will only support very
 basic output-features (for example you only get 3 bits of color depth).
 none::
-Does not use any color codes. Separates values by the pipe symbol. This should
-be used with i3bar and can be used for custom scripts.
+Does not use any color codes. Separates values by the pipe symbol by default.
+This should be used with i3bar and can be used for custom scripts.
 
 It's also possible to use the color_good, color_degraded, color_bad directives
 to define specific colors per module. If one of these directives is defined
 in a module section its value will override the value defined in the general
 section just for this module.
+
+If you don't fancy the vertical separators between modules i3status/i3bar
+uses by default, you can employ the +separator+ directive to configure how
+modules are separated. You can either disable the default separator altogether
+setting it to the empty string. You might then define separation as part of a
+module's format string. This is your only option when using the i3bar output
+format as the separator is drawn by i3bar directly otherwise. For the other
+output formats, the provided non-empty string will be automatically enclosed
+with the necessary coloring bits if color support is enabled.
+
+*Example configuration*:
+-------------------------------------------------------------
+general {
+    output_format = "xmobar"
+    separator = "  "
+}
+
+order += "load"
+order += "disk /"
+
+load {
+    format = "[ load: %1min, %5min, %15min ]"
+}
+disk "/" {
+    format = "%avail"
+}
+-------------------------------------------------------------
 
 === IPv6
 
@@ -196,6 +227,21 @@ SI prefixes (k, M, G, T) represent multiples of powers of 1000.
 custom::
 The custom prefixes (K, M, G, T) represent multiples of powers of 1024.
 
+It is possible to define a low_threshold that causes the disk text to be
+displayed using color_bad. The low_threshold type can be of threshold_type
+"bytes_free", "bytes_avail", "percentage_free", or "percentage_avail", where
+the former two can be prepended by a generic prefix (k, m, g, t) having
+prefix_type. So, if you configure low_threshold to 2, threshold_type to
+"gbytes_avail", and prefix_type to "binary", and the remaining available disk
+space is below 2 GiB, it will be colored bad. If not specified, threshold_type
+is assumed to be "percentage_avail" and low_threshold to be set to 0, which
+implies no coloring at all.
+
+You can define a different format with the option "format_not_mounted"
+which is used if the path is not a mount point. So you can just empty
+the output for the given path with adding »format_not_mounted=""«
+to the config section.
+
 *Example order*: +disk /mnt/usbstick+
 
 *Example format*: +%free (%avail)/ %total+
@@ -203,6 +249,10 @@ The custom prefixes (K, M, G, T) represent multiples of powers of 1024.
 *Example format*: +%percentage_used used, %percentage_free free, %percentage_avail avail+
 
 *Example prefix_type*: +custom+
+
+*Example low_threshold*: +5+
+
+*Example threshold_type*: +percentage_free+
 
 === Run-watch
 
@@ -225,19 +275,25 @@ something is active, like for example a VPN tunnel managed by NetworkManager.
 
 === Wireless
 
-Gets the link quality and ESSID of the given wireless network interface. You
-can specify different format strings for the network being connected or not
-connected.
+Gets the link quality, frequency and ESSID of the given wireless network
+interface. You can specify different format strings for the network being
+connected or not connected.
+
+The special interface name `_first_` will be replaced by the first wireless
+network interface found on the system (excluding devices starting with "lo").
 
 *Example order*: +wireless wlan0+
 
-*Example format*: +W: (%quality at %essid, %bitrate) %ip+
+*Example format*: +W: (%quality at %essid, %bitrate / %frequency) %ip+
 
 === Ethernet
 
 Gets the IP address and (if possible) the link speed of the given ethernet
 interface. Getting the link speed requires the cap_net_admin capability. Set
 it using +setcap cap_net_admin=ep $(which i3status)+.
+
+The special interface name `_first_` will be replaced by the first non-wireless
+network interface found on the system (excluding devices starting with "lo").
 
 *Example order*: +ethernet eth0+
 
@@ -267,11 +323,24 @@ colored red. The low_threshold type can be of threshold_type "time" or
 "percentage". So, if you configure low_threshold to 10 and threshold_type to
 "time", and your battery lasts another 9 minutes, it will be colored red.
 
+Optionally custom strings including any UTF-8 symbols can be used for different
+battery states. This makes it possible to display individual symbols
+for each state (charging, discharging, full)
+Of course it will also work with special iconic fonts, such as FontAwesome.
+If any of this special status strings is omitted, the default (CHR, BAT, FULL)
+is used.
+
 *Example order*: +battery 0+
 
 *Example format*: +%status %remaining (%emptytime %consumption)+
 
 *Example format_down*: +No battery+
+
+*Example status_chr*: +⚇ CHR+
+
+*Example status_bat*: +⚡ BAT+
+
+*Example status_full*: +☻ FULL+
 
 *Example low_threshold*: +30+
 
@@ -374,6 +443,35 @@ volume master {
 	device = "default"
 	mixer = "Master"
 	mixer_idx = 0
+}
+-------------------------------------------------------------
+
+== Universal module options
+
+When using the i3bar output format, there are a few additional options that
+can be used with all modules to customize their appearance:
+
+align::
+	The alignment policy to use when the minimum width (see below) is not
+	reached. Either +center+ (default), +right+ or +left+.
+min_width::
+	The minimum width (in pixels) the module should occupy. If the module takes
+	less space than the specified size, the block will be padded to the left
+	and/or the right side, according to the defined alignment policy. This is
+	useful when you want to prevent the whole status line from shifting when
+	values take more or less space between each iteration.
+	The option can also be a string. In this case, the width of the given text
+	determines the minimum width of the block. This is useful when you want to
+	set a sensible minimum width regardless of which font you are using, and at
+	what particular size. Please note that a number enclosed with quotes will
+	still be treated as a number.
+
+*Example configuration*:
+-------------------------------------------------------------
+disk "/" {
+    format = "%avail"
+    align = "left"
+    min_width = 100
 }
 -------------------------------------------------------------
 
