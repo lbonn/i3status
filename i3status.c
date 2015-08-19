@@ -410,9 +410,10 @@ int main(int argc, char *argv[]) {
         CFG_INT("port", 6600, CFGF_NONE),
         CFG_STR("password", "", CFGF_NONE),
         CFG_STR("format", "%artist - %title", CFGF_NONE),
+        CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
-        CFG_END()
-    };
+        CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_END()};
 
     cfg_opt_t opts[] = {
         CFG_STR_LIST("order", "{}", CFGF_NONE),
