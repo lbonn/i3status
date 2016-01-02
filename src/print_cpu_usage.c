@@ -10,7 +10,11 @@
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
+#if defined(__OpenBSD__)
+#include <sys/sched.h>
+#else
 #include <sys/dkstat.h>
+#endif
 #endif
 
 #if defined(__DragonFly__)
@@ -40,12 +44,12 @@ static int prev_idle = 0;
 void print_cpu_usage(yajl_gen json_gen, char *buffer, const char *format) {
     const char *walk;
     char *outwalk = buffer;
-    char buf[1024];
     int curr_user = 0, curr_nice = 0, curr_system = 0, curr_idle = 0, curr_total;
     int diff_idle, diff_total, diff_usage;
 
 #if defined(LINUX)
     static char statpath[512];
+    char buf[1024];
     strcpy(statpath, "/proc/stat");
     if (!slurp(statpath, buf, sizeof(buf)) ||
         sscanf(buf, "cpu %d %d %d %d", &curr_user, &curr_nice, &curr_system, &curr_idle) != 4)
@@ -98,7 +102,7 @@ void print_cpu_usage(yajl_gen json_gen, char *buffer, const char *format) {
         }
 
         if (BEGINS_WITH(walk + 1, "usage")) {
-            outwalk += sprintf(outwalk, "%02d%%", diff_usage);
+            outwalk += sprintf(outwalk, "%02d%s", diff_usage, pct_mark);
             walk += strlen("usage");
         }
     }

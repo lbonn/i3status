@@ -3,7 +3,7 @@
  *
  * i3status – Generates a status line for dzen2 or xmobar
  *
- * Copyright © 2008-2012 Michael Stapelberg and contributors
+ * Copyright © 2008 Michael Stapelberg and contributors
  * Copyright © 2009 Thorsten Toepper <atsutane at freethoughts dot de>
  * Copyright © 2010 Axel Wagner <mail at merovius dot de>
  * Copyright © 2010 Fernando Tarlá Cardoso Lemos <fernandotcl at gmail dot com>
@@ -61,6 +61,9 @@ static bool exit_upon_signal = false;
 cfg_t *cfg, *cfg_general, *cfg_section;
 
 void **cur_instance;
+
+pthread_cond_t i3status_sleep_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t i3status_sleep_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /*
  * Set the exit_upon_signal flag, because one cannot do anything in a safe
@@ -160,11 +163,21 @@ static int parse_min_width(cfg_t *context, cfg_opt_t *option, const char *value,
  *
  */
 static int valid_color(const char *value) {
-    if (strlen(value) != 7)
-        return 0;
+    const int len = strlen(value);
+
+    if (output_format == O_LEMONBAR) {
+        /* lemonbar supports an optional alpha channel */
+        if (len != strlen("#rrggbb") && len != strlen("#aarrggbb")) {
+            return 0;
+        }
+    } else {
+        if (len != strlen("#rrggbb")) {
+            return 0;
+        }
+    }
     if (value[0] != '#')
         return 0;
-    for (int i = 1; i < 7; ++i) {
+    for (int i = 1; i < len; ++i) {
         if (value[i] >= '0' && value[i] <= '9')
             continue;
         if (value[i] >= 'a' && value[i] <= 'f')
@@ -282,11 +295,13 @@ int main(int argc, char *argv[]) {
         CFG_STR("color_separator", "#333333", CFGF_NONE),
         CFG_INT("interval", 1, CFGF_NONE),
         CFG_COLOR_OPTS("#00FF00", "#FFFF00", "#FF0000"),
+        CFG_STR("markup", "none", CFGF_NONE),
         CFG_END()};
 
     cfg_opt_t run_watch_opts[] = {
         CFG_STR("pidfile", NULL, CFGF_NONE),
         CFG_STR("format", "%title: %status", CFGF_NONE),
+        CFG_STR("format_down", NULL, CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
@@ -295,6 +310,7 @@ int main(int argc, char *argv[]) {
     cfg_opt_t path_exists_opts[] = {
         CFG_STR("path", NULL, CFGF_NONE),
         CFG_STR("format", "%title: %status", CFGF_NONE),
+        CFG_STR("format_down", NULL, CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
@@ -350,6 +366,7 @@ int main(int argc, char *argv[]) {
     cfg_opt_t tztime_opts[] = {
         CFG_STR("format", "%Y-%m-%d %H:%M:%S %Z", CFGF_NONE),
         CFG_STR("timezone", "", CFGF_NONE),
+        CFG_STR("format_time", NULL, CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_MIN_WIDTH_OPT,
         CFG_END()};
@@ -466,12 +483,12 @@ int main(int argc, char *argv[]) {
         if ((char)o == 'c')
             configfile = optarg;
         else if ((char)o == 'h') {
-            printf("i3status " VERSION " © 2008-2012 Michael Stapelberg and contributors\n"
+            printf("i3status " VERSION " © 2008 Michael Stapelberg and contributors\n"
                    "Syntax: %s [-c <configfile>] [-h] [-v]\n",
                    argv[0]);
             return 0;
         } else if ((char)o == 'v') {
-            printf("i3status " VERSION " © 2008-2012 Michael Stapelberg and contributors\n");
+            printf("i3status " VERSION " © 2008 Michael Stapelberg and contributors\n");
             return 0;
         }
 
@@ -507,6 +524,8 @@ int main(int argc, char *argv[]) {
         output_format = O_XMOBAR;
     else if (strcasecmp(output_str, "i3bar") == 0)
         output_format = O_I3BAR;
+    else if (strcasecmp(output_str, "lemonbar") == 0)
+        output_format = O_LEMONBAR;
     else if (strcasecmp(output_str, "term") == 0)
         output_format = O_TERM;
     else if (strcasecmp(output_str, "none") == 0)
@@ -516,12 +535,23 @@ int main(int argc, char *argv[]) {
 
     const char *separator = cfg_getstr(cfg_general, "separator");
 
+    /* lemonbar needs % to be escaped with another % */
+    pct_mark = (output_format == O_LEMONBAR) ? "%%" : "%";
+
     // if no custom separator has been provided, use the default one
     if (strcasecmp(separator, "default") == 0)
         separator = get_default_separator();
 
     if (!valid_color(cfg_getstr(cfg_general, "color_good")) || !valid_color(cfg_getstr(cfg_general, "color_degraded")) || !valid_color(cfg_getstr(cfg_general, "color_bad")) || !valid_color(cfg_getstr(cfg_general, "color_separator")))
         die("Bad color format");
+
+    char *markup_str = cfg_getstr(cfg_general, "markup");
+    if (strcasecmp(markup_str, "pango") == 0)
+        markup_format = M_PANGO;
+    else if (strcasecmp(markup_str, "none") == 0)
+        markup_format = M_NONE;
+    else
+        die("Unknown markup format: \"%s\"\n", markup_str);
 
 #if YAJL_MAJOR >= 2
     yajl_gen json_gen = yajl_gen_alloc(NULL);
@@ -558,6 +588,7 @@ int main(int argc, char *argv[]) {
     char buffer[4096];
 
     void **per_instance = calloc(cfg_size(cfg, "order"), sizeof(*per_instance));
+    pthread_mutex_lock(&i3status_sleep_mutex);
 
     while (1) {
         if (exit_upon_signal) {
@@ -614,13 +645,13 @@ int main(int argc, char *argv[]) {
 
             CASE_SEC_TITLE("run_watch") {
                 SEC_OPEN_MAP("run_watch");
-                print_run_watch(json_gen, buffer, title, cfg_getstr(sec, "pidfile"), cfg_getstr(sec, "format"));
+                print_run_watch(json_gen, buffer, title, cfg_getstr(sec, "pidfile"), cfg_getstr(sec, "format"), cfg_getstr(sec, "format_down"));
                 SEC_CLOSE_MAP;
             }
 
             CASE_SEC_TITLE("path_exists") {
                 SEC_OPEN_MAP("path_exists");
-                print_path_exists(json_gen, buffer, title, cfg_getstr(sec, "path"), cfg_getstr(sec, "format"));
+                print_path_exists(json_gen, buffer, title, cfg_getstr(sec, "path"), cfg_getstr(sec, "format"), cfg_getstr(sec, "format_down"));
                 SEC_CLOSE_MAP;
             }
 
@@ -638,13 +669,13 @@ int main(int argc, char *argv[]) {
 
             CASE_SEC("time") {
                 SEC_OPEN_MAP("time");
-                print_time(json_gen, buffer, cfg_getstr(sec, "format"), NULL, tv.tv_sec);
+                print_time(json_gen, buffer, NULL, cfg_getstr(sec, "format"), NULL, NULL, tv.tv_sec);
                 SEC_CLOSE_MAP;
             }
 
             CASE_SEC_TITLE("tztime") {
                 SEC_OPEN_MAP("tztime");
-                print_time(json_gen, buffer, cfg_getstr(sec, "format"), cfg_getstr(sec, "timezone"), tv.tv_sec);
+                print_time(json_gen, buffer, title, cfg_getstr(sec, "format"), cfg_getstr(sec, "timezone"), cfg_getstr(sec, "format_time"), tv.tv_sec);
                 SEC_CLOSE_MAP;
             }
 
@@ -699,13 +730,21 @@ int main(int argc, char *argv[]) {
         fflush(stdout);
 
         /* To provide updates on every full second (as good as possible)
-         * we don’t use sleep(interval) but we sleep until the next
-         * second (with microsecond precision) plus (interval-1)
-         * seconds. We also align to 60 seconds modulo interval such
+         * we don’t use sleep(interval) but we sleep until the next second.
+         * We also align to 60 seconds modulo interval such
          * that we start with :00 on every new minute. */
-        struct timeval current_timeval;
-        gettimeofday(&current_timeval, NULL);
-        struct timespec ts = {interval - 1 - (current_timeval.tv_sec % interval), (10e5 - current_timeval.tv_usec) * 1000};
-        nanosleep(&ts, NULL);
+        struct timespec ts;
+#if defined(__APPLE__)
+        gettimeofday(&tv, NULL);
+        ts.tv_sec = tv.tv_sec;
+#else
+        clock_gettime(CLOCK_REALTIME, &ts);
+#endif
+        ts.tv_sec += interval - (ts.tv_sec % interval);
+        ts.tv_nsec = 0;
+
+        /* Sleep to absolute time 'ts', unless the condition
+         * 'i3status_sleep_cond' is signaled from another thread */
+        pthread_cond_timedwait(&i3status_sleep_cond, &i3status_sleep_mutex, &ts);
     }
 }
