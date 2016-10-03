@@ -32,45 +32,50 @@ static unsigned int utf8_count_bytes(char c) {
 }
 
 static void _copy_crop(char *dst, const char *src, size_t dst_len) {
-    size_t crop_len = dst_len - 4;
+    static const char *ellipsis = "...";
+    size_t crop_len = dst_len - strlen(ellipsis) - 1;
     size_t k;
 
-    if (src) {
-        size_t src_len = strlen(src);
-        size_t ck = 0;
-        unsigned int utf8_bytes_rem = 0;
+    size_t ck = 0;
+    unsigned int utf8_bytes_rem = 0;
 
-        /* copy and respect these conditions:
-         * - strlen(dst) < crop_len
-         * - unterminated utf8 chars are discarded
-         */
-        for (k = 0; k < crop_len; k++) {
-            if (src[k] == 0) {
-                break;
-            }
-
-            dst[k] = src[k];
-
-            if (utf8_bytes_rem == 0) {
-                /* expecting a new char */
-                utf8_bytes_rem = utf8_count_bytes(src[k]) - 1;
-            } else {
-                utf8_bytes_rem -= 1;
-            }
-
-            if (utf8_bytes_rem == 0) {
-                /* end of a char */
-                ck = k + 1;
-            }
-        }
-
-        if (src_len > ck) {
-            strcpy(dst + ck, "...");
-            ck += 3;
-        }
-
-        dst[ck] = 0;
+    /* no source: empty string */
+    if (!src) {
+        dst[0] = 0;
+        return;
     }
+
+    /* copy and respect these conditions:
+     * - strlen(dst) < crop_len
+     * - unterminated utf8 chars are discarded
+     */
+    for (k = 0; k < crop_len; k++) {
+        if (src[k] == 0) {
+            break;
+        }
+
+        dst[k] = src[k];
+
+        if (utf8_bytes_rem == 0) {
+            /* expecting a new char */
+            utf8_bytes_rem = utf8_count_bytes(src[k]) - 1;
+        } else {
+            utf8_bytes_rem -= 1;
+        }
+
+        if (utf8_bytes_rem == 0) {
+            /* end of a char */
+            ck = k + 1;
+        }
+    }
+
+    /* add ellipsis */
+    if (strlen(src) > ck) {
+        strcpy(dst + ck, ellipsis);
+        ck += 3;
+    }
+
+    dst[ck] = 0;
 }
 
 #define copy_crop(dst, src) _copy_crop(dst, src, sizeof(dst))
