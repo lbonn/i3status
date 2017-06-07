@@ -1,3 +1,5 @@
+TOPDIR=$(shell pwd)
+
 ifndef PREFIX
   PREFIX=/usr
 endif
@@ -17,16 +19,23 @@ CFLAGS+=-g
 CFLAGS+=-std=gnu99
 CFLAGS+=-pedantic
 CPPFLAGS+=-DSYSCONFDIR=\"$(SYSCONFDIR)\"
-CPPFLAGS+=-DVERSION=\"${GIT_VERSION}\"
+CPPFLAGS+=-DVERSION=\"${I3STATUS_VERSION}\"
 CFLAGS+=-Iinclude
 LIBS+=-lconfuse
 LIBS+=-lyajl
 LIBS+=-lmpdclient
 LIBS+=-lpulse
 LIBS+=-lm
+LIBS+=-lpthread
 
-VERSION:=$(shell git describe --tags --abbrev=0)
-GIT_VERSION:="$(shell git describe --tags --always) ($(shell git log --pretty=format:%cd --date=short -n1))"
+ifeq ($(wildcard .git),)
+  # not in git repository
+  VERSION := $(shell [ -f $(TOPDIR)/I3STATUS_VERSION ] && cat $(TOPDIR)/I3STATUS_VERSION | cut -d '-' -f 1)
+  I3STATUS_VERSION := '$(shell [ -f $(TOPDIR)/I3STATUS_VERSION ] && cat $(TOPDIR)/I3STATUS_VERSION)'
+else
+  VERSION:=$(shell git describe --tags --abbrev=0)
+  I3STATUS_VERSION:="$(shell git describe --tags --always) ($(shell git log --pretty=format:%cd --date=short -n1))"
+endif
 OS:=$(shell uname)
 
 ifeq ($(OS),Linux)
@@ -68,12 +77,12 @@ CFLAGS+=$(EXTRA_CFLAGS)
 # YAJL_MAJOR from that file to decide which code path should be used.
 CFLAGS += -idirafter yajl-fallback
 
-OBJS:=$(wildcard src/*.c *.c)
+OBJS:=$(sort $(wildcard src/*.c *.c))
 OBJS:=$(OBJS:.c=.o)
 
 ifeq ($(OS),OpenBSD)
 OBJS:=$(filter-out src/pulse.o, $(OBJS))
-LIBS:=$(filter-out -lpulse, $(LIBS)) -lpthread
+LIBS:=$(filter-out -lpulse, $(LIBS))
 endif
 
 src/%.o: src/%.c include/i3status.h
@@ -120,6 +129,6 @@ release:
 	cp -r include i3status-${VERSION}
 	cp -r yajl-fallback i3status-${VERSION}
 	cp -r contrib i3status-${VERSION}
-	sed -e 's/^GIT_VERSION:=\(.*\)/GIT_VERSION=${GIT_VERSION}/g;s/^VERSION:=\(.*\)/VERSION=${VERSION}/g' Makefile > i3status-${VERSION}/Makefile
+	echo ${I3STATUS_VERSION} > i3status-${VERSION}/I3STATUS_VERSION
 	tar cjf i3status-${VERSION}.tar.bz2 i3status-${VERSION}
 	rm -rf i3status-${VERSION}

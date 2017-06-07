@@ -53,17 +53,28 @@
 #define CFG_CUSTOM_MIN_WIDTH_OPT \
     CFG_PTR_CB("min_width", NULL, CFGF_NONE, parse_min_width, free)
 
+#define CFG_CUSTOM_SEPARATOR_OPT \
+    CFG_BOOL("separator", 0, CFGF_NODEFAULT)
+
+#define CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT \
+    CFG_INT("separator_block_width", 0, CFGF_NODEFAULT)
+
 /* socket file descriptor for general purposes */
 int general_socket;
 
 static bool exit_upon_signal = false;
+static bool run_once = false;
 
 cfg_t *cfg, *cfg_general, *cfg_section;
 
 void **cur_instance;
 
-pthread_cond_t i3status_sleep_cond = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t i3status_sleep_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_t main_thread;
+
+markup_format_t markup_format;
+output_format_t output_format;
+
+char *pct_mark;
 
 /*
  * Set the exit_upon_signal flag, because one cannot do anything in a safe
@@ -99,7 +110,7 @@ static void *scalloc(size_t size) {
     return result;
 }
 
-static char *sstrdup(const char *str) {
+char *sstrdup(const char *str) {
     char *result = strdup(str);
     exit_if_null(result, "Error: out of memory (strdup())\n");
     return result;
@@ -224,12 +235,7 @@ static char *resolve_tilde(const char *path) {
 static char *get_config_path(void) {
     char *xdg_config_home, *xdg_config_dirs, *config_path;
 
-    /* 1: check the traditional path under the home directory */
-    config_path = resolve_tilde("~/.i3status.conf");
-    if (path_exists(config_path))
-        return config_path;
-
-    /* 2: check for $XDG_CONFIG_HOME/i3status/config */
+    /* 1: check for $XDG_CONFIG_HOME/i3status/config */
     if ((xdg_config_home = getenv("XDG_CONFIG_HOME")) == NULL)
         xdg_config_home = "~/.config";
 
@@ -242,15 +248,14 @@ static char *get_config_path(void) {
         return config_path;
     free(config_path);
 
-    /* 3: check the traditional path under /etc */
-    config_path = SYSCONFDIR "/i3status.conf";
-    if (path_exists(config_path))
-        return sstrdup(config_path);
-
-    /* 4: check for $XDG_CONFIG_DIRS/i3status/config */
+    /* 2: check for $XDG_CONFIG_DIRS/i3status/config */
     if ((xdg_config_dirs = getenv("XDG_CONFIG_DIRS")) == NULL)
         xdg_config_dirs = "/etc/xdg";
 
+    /* 3: check the traditional path under the home directory */
+    config_path = resolve_tilde("~/.i3status.conf");
+    if (path_exists(config_path))
+        return config_path;
     char *buf = strdup(xdg_config_dirs);
     char *tok = strtok(buf, ":");
     while (tok != NULL) {
@@ -266,6 +271,11 @@ static char *get_config_path(void) {
         tok = strtok(NULL, ":");
     }
     free(buf);
+
+    /* 4: check the traditional path under /etc */
+    config_path = SYSCONFDIR "/i3status.conf";
+    if (path_exists(config_path))
+        return sstrdup(config_path);
 
     die("Unable to find the configuration file (looked at "
         "~/.i3status.conf, $XDG_CONFIG_HOME/i3status/config, "
@@ -305,6 +315,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t path_exists_opts[] = {
@@ -314,6 +326,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t wireless_opts[] = {
@@ -322,6 +336,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t ethernet_opts[] = {
@@ -330,6 +346,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t ipv6_opts[] = {
@@ -338,6 +356,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t battery_opts[] = {
@@ -345,6 +365,7 @@ int main(int argc, char *argv[]) {
         CFG_STR("format_down", "No battery", CFGF_NONE),
         CFG_STR("status_chr", "CHR", CFGF_NONE),
         CFG_STR("status_bat", "BAT", CFGF_NONE),
+        CFG_STR("status_unk", "UNK", CFGF_NONE),
         CFG_STR("status_full", "FULL", CFGF_NONE),
         CFG_STR("path", "/sys/class/power_supply/BAT%d/uevent", CFGF_NONE),
         CFG_INT("low_threshold", 30, CFGF_NONE),
@@ -355,53 +376,76 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t time_opts[] = {
         CFG_STR("format", "%Y-%m-%d %H:%M:%S", CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t tztime_opts[] = {
         CFG_STR("format", "%Y-%m-%d %H:%M:%S %Z", CFGF_NONE),
         CFG_STR("timezone", "", CFGF_NONE),
+        CFG_STR("locale", "", CFGF_NONE),
         CFG_STR("format_time", NULL, CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t ddate_opts[] = {
         CFG_STR("format", "%{%a, %b %d%}, %Y%N - %H", CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t load_opts[] = {
         CFG_STR("format", "%1min %5min %15min", CFGF_NONE),
+        CFG_STR("format_above_threshold", NULL, CFGF_NONE),
         CFG_FLOAT("max_threshold", 5, CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t usage_opts[] = {
         CFG_STR("format", "%usage", CFGF_NONE),
+        CFG_STR("format_above_threshold", NULL, CFGF_NONE),
+        CFG_STR("format_above_degraded_threshold", NULL, CFGF_NONE),
+        CFG_FLOAT("max_threshold", 95, CFGF_NONE),
+        CFG_FLOAT("degraded_threshold", 90, CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
+        CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t temp_opts[] = {
         CFG_STR("format", "%degrees C", CFGF_NONE),
+        CFG_STR("format_above_threshold", NULL, CFGF_NONE),
         CFG_STR("path", NULL, CFGF_NONE),
         CFG_INT("max_threshold", 75, CFGF_NONE),
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t disk_opts[] = {
         CFG_STR("format", "%free", CFGF_NONE),
+        CFG_STR("format_below_threshold", NULL, CFGF_NONE),
         CFG_STR("format_not_mounted", NULL, CFGF_NONE),
         CFG_STR("prefix_type", "binary", CFGF_NONE),
         CFG_STR("threshold_type", "percentage_avail", CFGF_NONE),
@@ -409,6 +453,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t volume_opts[] = {
@@ -420,6 +466,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t mpd_opts[] = {
@@ -430,6 +478,8 @@ int main(int argc, char *argv[]) {
         CFG_CUSTOM_ALIGN_OPT,
         CFG_CUSTOM_COLOR_OPTS,
         CFG_CUSTOM_MIN_WIDTH_OPT,
+        CFG_CUSTOM_SEPARATOR_OPT,
+        CFG_CUSTOM_SEP_BLOCK_WIDTH_OPT,
         CFG_END()};
 
     cfg_opt_t opts[] = {
@@ -453,16 +503,18 @@ int main(int argc, char *argv[]) {
         CFG_END()};
 
     char *configfile = NULL;
-    int o, option_index = 0;
+    int opt, option_index = 0;
     struct option long_options[] = {
         {"config", required_argument, 0, 'c'},
         {"help", no_argument, 0, 'h'},
         {"version", no_argument, 0, 'v'},
+        {"run-once", no_argument, 0, 0},
         {0, 0, 0, 0}};
 
     struct sigaction action;
     memset(&action, 0, sizeof(struct sigaction));
     action.sa_handler = fatalsig;
+    main_thread = pthread_self();
 
     /* Exit upon SIGPIPE because when we have nowhere to write to, gathering system
      * information is pointless. Also exit explicitly on SIGTERM and SIGINT because
@@ -479,18 +531,28 @@ int main(int argc, char *argv[]) {
     if (setlocale(LC_ALL, "") == NULL)
         die("Could not set locale. Please make sure all your LC_* / LANG settings are correct.");
 
-    while ((o = getopt_long(argc, argv, "c:hv", long_options, &option_index)) != -1)
-        if ((char)o == 'c')
-            configfile = optarg;
-        else if ((char)o == 'h') {
-            printf("i3status " VERSION " © 2008 Michael Stapelberg and contributors\n"
-                   "Syntax: %s [-c <configfile>] [-h] [-v]\n",
-                   argv[0]);
-            return 0;
-        } else if ((char)o == 'v') {
-            printf("i3status " VERSION " © 2008 Michael Stapelberg and contributors\n");
-            return 0;
+    while ((opt = getopt_long(argc, argv, "c:hv", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'c':
+                configfile = optarg;
+                break;
+            case 'h':
+                printf("i3status " VERSION " © 2008 Michael Stapelberg and contributors\n"
+                       "Syntax: %s [-c <configfile>] [-h] [-v]\n",
+                       argv[0]);
+                return 0;
+                break;
+            case 'v':
+                printf("i3status " VERSION " © 2008 Michael Stapelberg and contributors\n");
+                return 0;
+                break;
+            case 0:
+                if (strcmp(long_options[option_index].name, "run-once") == 0) {
+                    run_once = true;
+                }
+                break;
         }
+    }
 
     if (configfile == NULL)
         configfile = get_config_path();
@@ -588,7 +650,6 @@ int main(int argc, char *argv[]) {
     char buffer[4096];
 
     void **per_instance = calloc(cfg_size(cfg, "order"), sizeof(*per_instance));
-    pthread_mutex_lock(&i3status_sleep_mutex);
 
     while (1) {
         if (exit_upon_signal) {
@@ -639,7 +700,7 @@ int main(int argc, char *argv[]) {
 
             CASE_SEC_TITLE("battery") {
                 SEC_OPEN_MAP("battery");
-                print_battery_info(json_gen, buffer, atoi(title), cfg_getstr(sec, "path"), cfg_getstr(sec, "format"), cfg_getstr(sec, "format_down"), cfg_getstr(sec, "status_chr"), cfg_getstr(sec, "status_bat"), cfg_getstr(sec, "status_full"), cfg_getint(sec, "low_threshold"), cfg_getstr(sec, "threshold_type"), cfg_getbool(sec, "last_full_capacity"), cfg_getbool(sec, "integer_battery_capacity"), cfg_getbool(sec, "hide_seconds"));
+                print_battery_info(json_gen, buffer, (strcasecmp(title, "all") == 0 ? -1 : atoi(title)), cfg_getstr(sec, "path"), cfg_getstr(sec, "format"), cfg_getstr(sec, "format_down"), cfg_getstr(sec, "status_chr"), cfg_getstr(sec, "status_bat"), cfg_getstr(sec, "status_unk"), cfg_getstr(sec, "status_full"), cfg_getint(sec, "low_threshold"), cfg_getstr(sec, "threshold_type"), cfg_getbool(sec, "last_full_capacity"), cfg_getbool(sec, "integer_battery_capacity"), cfg_getbool(sec, "hide_seconds"));
                 SEC_CLOSE_MAP;
             }
 
@@ -657,25 +718,25 @@ int main(int argc, char *argv[]) {
 
             CASE_SEC_TITLE("disk") {
                 SEC_OPEN_MAP("disk_info");
-                print_disk_info(json_gen, buffer, title, cfg_getstr(sec, "format"), cfg_getstr(sec, "format_not_mounted"), cfg_getstr(sec, "prefix_type"), cfg_getstr(sec, "threshold_type"), cfg_getfloat(sec, "low_threshold"));
+                print_disk_info(json_gen, buffer, title, cfg_getstr(sec, "format"), cfg_getstr(sec, "format_below_threshold"), cfg_getstr(sec, "format_not_mounted"), cfg_getstr(sec, "prefix_type"), cfg_getstr(sec, "threshold_type"), cfg_getfloat(sec, "low_threshold"));
                 SEC_CLOSE_MAP;
             }
 
             CASE_SEC("load") {
                 SEC_OPEN_MAP("load");
-                print_load(json_gen, buffer, cfg_getstr(sec, "format"), cfg_getfloat(sec, "max_threshold"));
+                print_load(json_gen, buffer, cfg_getstr(sec, "format"), cfg_getstr(sec, "format_above_threshold"), cfg_getfloat(sec, "max_threshold"));
                 SEC_CLOSE_MAP;
             }
 
             CASE_SEC("time") {
                 SEC_OPEN_MAP("time");
-                print_time(json_gen, buffer, NULL, cfg_getstr(sec, "format"), NULL, NULL, tv.tv_sec);
+                print_time(json_gen, buffer, NULL, cfg_getstr(sec, "format"), NULL, NULL, NULL, tv.tv_sec);
                 SEC_CLOSE_MAP;
             }
 
             CASE_SEC_TITLE("tztime") {
                 SEC_OPEN_MAP("tztime");
-                print_time(json_gen, buffer, title, cfg_getstr(sec, "format"), cfg_getstr(sec, "timezone"), cfg_getstr(sec, "format_time"), tv.tv_sec);
+                print_time(json_gen, buffer, title, cfg_getstr(sec, "format"), cfg_getstr(sec, "timezone"), cfg_getstr(sec, "locale"), cfg_getstr(sec, "format_time"), tv.tv_sec);
                 SEC_CLOSE_MAP;
             }
 
@@ -703,13 +764,13 @@ int main(int argc, char *argv[]) {
 
             CASE_SEC_TITLE("cpu_temperature") {
                 SEC_OPEN_MAP("cpu_temperature");
-                print_cpu_temperature_info(json_gen, buffer, atoi(title), cfg_getstr(sec, "path"), cfg_getstr(sec, "format"), cfg_getint(sec, "max_threshold"));
+                print_cpu_temperature_info(json_gen, buffer, atoi(title), cfg_getstr(sec, "path"), cfg_getstr(sec, "format"), cfg_getstr(sec, "format_above_threshold"), cfg_getint(sec, "max_threshold"));
                 SEC_CLOSE_MAP;
             }
 
             CASE_SEC("cpu_usage") {
                 SEC_OPEN_MAP("cpu_usage");
-                print_cpu_usage(json_gen, buffer, cfg_getstr(sec, "format"));
+                print_cpu_usage(json_gen, buffer, cfg_getstr(sec, "format"), cfg_getstr(sec, "format_above_threshold"), cfg_getstr(sec, "format_above_degraded_threshold"), cfg_getfloat(sec, "max_threshold"), cfg_getfloat(sec, "degraded_threshold"));
                 SEC_CLOSE_MAP;
             }
         }
@@ -729,22 +790,18 @@ int main(int argc, char *argv[]) {
         printf("\n");
         fflush(stdout);
 
-        /* To provide updates on every full second (as good as possible)
-         * we don’t use sleep(interval) but we sleep until the next second.
-         * We also align to 60 seconds modulo interval such
-         * that we start with :00 on every new minute. */
-        struct timespec ts;
-#if defined(__APPLE__)
-        gettimeofday(&tv, NULL);
-        ts.tv_sec = tv.tv_sec;
-#else
-        clock_gettime(CLOCK_REALTIME, &ts);
-#endif
-        ts.tv_sec += interval - (ts.tv_sec % interval);
-        ts.tv_nsec = 0;
+        if (run_once) {
+            break;
+        }
 
-        /* Sleep to absolute time 'ts', unless the condition
-         * 'i3status_sleep_cond' is signaled from another thread */
-        pthread_cond_timedwait(&i3status_sleep_cond, &i3status_sleep_mutex, &ts);
+        /* To provide updates on every full second (as good as possible)
+         * we don’t use sleep(interval) but we sleep until the next
+         * second (with microsecond precision) plus (interval-1)
+         * seconds. We also align to 60 seconds modulo interval such
+         * that we start with :00 on every new minute. */
+        struct timeval current_timeval;
+        gettimeofday(&current_timeval, NULL);
+        struct timespec ts = {interval - 1 - (current_timeval.tv_sec % interval), (10e5 - current_timeval.tv_usec) * 1000};
+        nanosleep(&ts, NULL);
     }
 }

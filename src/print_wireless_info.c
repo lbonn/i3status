@@ -15,6 +15,10 @@
 #define IW_ESSID_MAX_SIZE 32
 #endif
 
+#ifdef __APPLE__
+#define IW_ESSID_MAX_SIZE 32
+#endif
+
 #ifdef __FreeBSD__
 #include <sys/param.h>
 #include <sys/ioctl.h>
@@ -50,6 +54,13 @@
 #include <netinet/if_ether.h>
 #include <net80211/ieee80211.h>
 #include <net80211/ieee80211_ioctl.h>
+#define IW_ESSID_MAX_SIZE IEEE80211_NWID_LEN
+#endif
+
+#ifdef __NetBSD__
+#include <sys/types.h>
+#include <net80211/ieee80211.h>
+#define IW_ESSID_MAX_SIZE IEEE80211_NWID_LEN
 #endif
 
 #include "i3status.h"
@@ -64,7 +75,9 @@
 
 typedef struct {
     int flags;
+#ifdef IW_ESSID_MAX_SIZE
     char essid[IW_ESSID_MAX_SIZE + 1];
+#endif
 #ifdef LINUX
     uint8_t bssid[ETH_ALEN];
 #endif
@@ -419,7 +432,7 @@ error1:
         else
             len = IEEE80211_NWID_LEN + 1;
 
-        strncpy(&info->essid[0], nwid.i_nwid, len);
+        strncpy(&info->essid[0], (char *)nwid.i_nwid, len);
         info->essid[IW_ESSID_MAX_SIZE] = '\0';
         info->flags |= WIRELESS_INFO_FLAG_HAS_ESSID;
     }
@@ -484,7 +497,7 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
         if (BEGINS_WITH(walk + 1, "quality")) {
             if (info.flags & WIRELESS_INFO_FLAG_HAS_QUALITY) {
                 if (info.quality_max)
-                    outwalk += sprintf(outwalk, "%03d%s", PERCENT_VALUE(info.quality, info.quality_max), pct_mark);
+                    outwalk += sprintf(outwalk, "%3d%s", PERCENT_VALUE(info.quality, info.quality_max), pct_mark);
                 else
                     outwalk += sprintf(outwalk, "%d", info.quality);
             } else {
@@ -496,7 +509,7 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
         if (BEGINS_WITH(walk + 1, "signal")) {
             if (info.flags & WIRELESS_INFO_FLAG_HAS_SIGNAL) {
                 if (info.signal_level_max)
-                    outwalk += sprintf(outwalk, "%03d%s", PERCENT_VALUE(info.signal_level, info.signal_level_max), pct_mark);
+                    outwalk += sprintf(outwalk, "%3d%s", PERCENT_VALUE(info.signal_level, info.signal_level_max), pct_mark);
                 else
                     outwalk += sprintf(outwalk, "%d dBm", info.signal_level);
             } else {
@@ -508,7 +521,7 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
         if (BEGINS_WITH(walk + 1, "noise")) {
             if (info.flags & WIRELESS_INFO_FLAG_HAS_NOISE) {
                 if (info.noise_level_max)
-                    outwalk += sprintf(outwalk, "%03d%s", PERCENT_VALUE(info.noise_level, info.noise_level_max), pct_mark);
+                    outwalk += sprintf(outwalk, "%3d%s", PERCENT_VALUE(info.noise_level, info.noise_level_max), pct_mark);
                 else
                     outwalk += sprintf(outwalk, "%d dBm", info.noise_level);
             } else {
@@ -518,9 +531,11 @@ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface,
         }
 
         if (BEGINS_WITH(walk + 1, "essid")) {
+#ifdef IW_ESSID_MAX_SIZE
             if (info.flags & WIRELESS_INFO_FLAG_HAS_ESSID)
                 maybe_escape_markup(info.essid, &outwalk);
             else
+#endif
                 *(outwalk++) = '?';
             walk += strlen("essid");
         }
